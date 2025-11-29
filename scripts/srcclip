@@ -6,10 +6,38 @@
 
 set -euo pipefail
 
-VERSION="1.01"
+VERSION="1.02"
 
 # Remember where the script was invoked
 CALLER_DIR=$PWD
+
+# Flags
+FULLCODE=false
+
+usage() {
+  cat <<'EOF'
+Usage: srcclip [--fullcode]
+  --fullcode  Keep comments and include *Tests* sources.
+EOF
+}
+
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    fullcode|--fullcode)
+      FULLCODE=true
+      shift
+      ;;
+    -h|--help)
+      usage
+      exit 0
+      ;;
+    *)
+      echo "Unknown option: $1"
+      usage
+      exit 1
+      ;;
+  esac
+done
 
 # Find the Git project root
 PROJECT_ROOT=$(git -C "$PWD" rev-parse --show-toplevel 2>/dev/null)
@@ -29,51 +57,54 @@ OUT_FILE_PATH="./${OUT_FILE_REL#./}"
 
 echo "🔍 Finding Swift files..."
 
-# Find and combine Swift files, strip comments
+FIND_FILTERS=(
+  -type f
+  -name '*.swift'
+  -not -path "$OUT_FILE_PATH"
+  -not -path '*/Pods/*'
+  -not -path '*/Carthage/*'
+  -not -path '*/DerivedData/*'
+  -not -path '*/build/*'
+  -not -path '*/.build/*'
+)
+
+if [[ "$FULLCODE" == false ]]; then
+  FIND_FILTERS+=( -not -path '*/*Tests*/*' )
+fi
+
+# Find and combine Swift files, optionally strip comments
 {
-    find . -type f -name '*.swift' \
-        -not -path "$OUT_FILE_PATH" \
-        -not -path '*/*Tests*/*' \
-        -not -path '*/Pods/*' \
-        -not -path '*/Carthage/*' \
-        -not -path '*/DerivedData/*' \
-        -not -path '*/build/*' \
-        -not -path '*/.build/*' \
-        -print0 \
+    find . "${FIND_FILTERS[@]}" -print0 \
     | sort -z \
     | while IFS= read -r -d '' file; do
         echo "// $file"
-        cat "$file" | sed -E '
-            # Remove single-line comments
-            s@//.*$@@
+        if [[ "$FULLCODE" == true ]]; then
+            cat "$file"
+        else
+            cat "$file" | sed -E '
+                # Remove single-line comments
+                s@//.*$@@
 
-            # Remove multi-line comments
-            :a
-            /\/\*/ {
-                /\*\//! {
-                    N
-                    ba
+                # Remove multi-line comments
+                :a
+                /\/\*/ {
+                    /\*\//! {
+                        N
+                        ba
+                    }
+                    s@/\*.*\*/@@
                 }
-                s@/\*.*\*/@@
-            }
-        ' | awk '
-            /^[[:space:]]*$/ { next }
-            { print }
-        '
+            ' | awk '
+                /^[[:space:]]*$/ { next }
+                { print }
+            '
+        fi
         echo ""
     done
 } > "$OUT_FILE"
 
 LINE_COUNT=$(wc -l < "$OUT_FILE")
-FILE_COUNT=$(find . -type f -name '*.swift' \
-    -not -path "$OUT_FILE_PATH" \
-    -not -path '*/*Tests*/*' \
-    -not -path '*/Pods/*' \
-    -not -path '*/Carthage/*' \
-    -not -path '*/DerivedData/*' \
-    -not -path '*/build/*' \
-    -not -path '*/.build/*' \
-    | wc -l)
+FILE_COUNT=$(find . "${FIND_FILTERS[@]}" | wc -l)
 
 echo "✅ Combined $FILE_COUNT Swift files"
 echo "📄 Wrote $LINE_COUNT lines to $OUT_FILE"
