@@ -1,7 +1,15 @@
 #!/usr/bin/env zsh
-# Combines Swift source files, strips comments, and copies to clipboard
+# Summarizes Swift source for quick sharing:
+# - Walks to the Git repo root, finds all `.swift` files outside any *Tests* folders plus build/Pods/Carthage/DerivedData.
+# - Concatenates them (sorted), strips Swift comments/empty lines, and writes to combined.swift in the invocation directory.
+# - Copies the combined file to the clipboard when pbcopy/xclip is available.
 
 set -euo pipefail
+
+VERSION="1.01"
+
+# Remember where the script was invoked
+CALLER_DIR=$PWD
 
 # Find the Git project root
 PROJECT_ROOT=$(git -C "$PWD" rev-parse --show-toplevel 2>/dev/null)
@@ -11,20 +19,21 @@ if [[ -z "$PROJECT_ROOT" ]]; then
 fi
 
 cd "$PROJECT_ROOT"
+echo "🧩 srcclip v$VERSION"
 echo "📁 Using project root: $PROJECT_ROOT"
 
 # Configuration
-OUT_DIR="build"
-OUT_FILE="$OUT_DIR/combined.swift"
-
-# Create output directory
-mkdir -p "$OUT_DIR"
+OUT_FILE="$CALLER_DIR/combined.swift"
+OUT_FILE_REL="${OUT_FILE#$PROJECT_ROOT/}"
+OUT_FILE_PATH="./${OUT_FILE_REL#./}"
 
 echo "🔍 Finding Swift files..."
 
 # Find and combine Swift files, strip comments
 {
     find . -type f -name '*.swift' \
+        -not -path "$OUT_FILE_PATH" \
+        -not -path '*/*Tests*/*' \
         -not -path '*/Pods/*' \
         -not -path '*/Carthage/*' \
         -not -path '*/DerivedData/*' \
@@ -57,6 +66,8 @@ echo "🔍 Finding Swift files..."
 
 LINE_COUNT=$(wc -l < "$OUT_FILE")
 FILE_COUNT=$(find . -type f -name '*.swift' \
+    -not -path "$OUT_FILE_PATH" \
+    -not -path '*/*Tests*/*' \
     -not -path '*/Pods/*' \
     -not -path '*/Carthage/*' \
     -not -path '*/DerivedData/*' \
